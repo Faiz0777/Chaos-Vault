@@ -22,16 +22,15 @@
         button { background: cyan; color: black; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px; }
         button:hover { background: white; box-shadow: 0 0 15px cyan; }
 
-        #quota-wrap { width: 100%; height: 6px; background: #002222; margin: 10px 0; }
-        #quota-bar { height: 100%; background: cyan; width: 0%; transition: 0.5s; }
-        #quota-text { font-size: 10px; color: #00aaaa; }
+        #quota-wrap { width: 100%; height: 10px; background: #002222; margin: 10px 0; border: 1px solid #004444; }
+        #quota-bar { height: 100%; background: cyan; width: 0%; transition: 0.5s; box-shadow: 0 0 10px cyan; }
+        #quota-text { font-size: 11px; color: #00ffff; text-transform: uppercase; letter-spacing: 1px; }
 
         .file-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #003333; padding: 12px 0; }
         #alert { position:fixed; inset:0; display:none; background:black; color:red; z-index:3000; align-items:center; justify-content:center; font-size:32px; text-align:center; animation:blink 0.4s infinite; font-weight: bold; }
         @keyframes blink { 50%{opacity:0.2;} }
         
-        /* THE SECRET ENTRANCE */
-        #secret-trigger { position:fixed; bottom:0; right:0; width:40px; height:40px; cursor: pointer; z-index: 5000; background: transparent; }
+        #secret-trigger { position:fixed; bottom:0; right:0; width:50px; height:50px; cursor: pointer; z-index: 5000; background: transparent; }
     </style>
 </head>
 <body>
@@ -47,19 +46,19 @@
 </div>
 
 <div id="vault">
-    <h1 style="border-bottom: 2px solid cyan; padding-bottom: 10px;">🔐 TITAN VAULT v2.0</h1>
+    <h1 style="border-bottom: 2px solid cyan; padding-bottom: 10px; color: cyan;">🔐 TITAN VAULT v2.1</h1>
     
     <div class="section" style="border:none; padding:0;">
-        <div id="quota-text">LOCAL STORAGE CAPACITY</div>
+        <div id="quota-text">LOCAL STORAGE: ANALYZING...</div>
         <div id="quota-wrap"><div id="quota-bar"></div></div>
     </div>
 
     <div class="section">
         <h3>☁️ TITAN CLOUD SYNC</h3>
-        <p style="font-size: 11px; color: #088;">TARGET: <strong>codervaultweb@gmail.com</strong></p>
+        <p style="font-size: 11px; color: #088;">MIRROR: <strong>codervaultweb@gmail.com</strong></p>
         <button id="syncBtn" onclick="handleCloudOp('sync')">⬆️ PUSH TO CLOUD</button>
         <button id="restoreBtn" onclick="handleCloudOp('restore')" style="background: #008b8b;">⬇️ PULL FROM CLOUD</button>
-        <div id="sync-status" style="font-size: 10px; margin-top: 10px; color: #0ff;"></div>
+        <div id="sync-status" style="font-size: 10px; margin-top: 10px; color: #0ff; font-family: monospace;"></div>
     </div>
 
     <div class="section">
@@ -91,9 +90,12 @@ request.onupgradeneeded = (e) => {
     if(!d.objectStoreNames.contains("vault")) d.createObjectStore("vault", { keyPath: "id" });
     if(!d.objectStoreNames.contains("files")) d.createObjectStore("files", { keyPath: "name" });
 };
-request.onsuccess = (e) => { db = e.target.result; updateStorageQuota(); };
+request.onsuccess = (e) => { 
+    db = e.target.result; 
+    updateStorageQuota(); 
+};
 
-/* ---------- GOOGLE DRIVE SYNC ---------- */
+/* ---------- CLOUD SYNC (STREAMING) ---------- */
 function gapiLoaded() { 
     gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })); 
 }
@@ -118,18 +120,22 @@ function handleCloudOp(op) {
 async function executeOp() {
     const status = document.getElementById('sync-status');
     if(pendingOp === 'sync') {
-        status.innerText = "SYNC STARTING...";
+        status.innerText = "> INITIALIZING TITAN UPLINK...";
         // Upload Notes
         await uploadToDrive('notes_backup.txt', new Blob([document.getElementById('notes').value], {type:'text/plain'}));
-        // Upload Files Individually
+        
+        // Upload Files Individually to bypass memory limits
         const tx = db.transaction("files", "readonly");
         tx.objectStore("files").openCursor().onsuccess = async (e) => {
             const cursor = e.target.result;
             if (cursor) {
-                status.innerText = `UPLOADING: ${cursor.value.name}...`;
+                status.innerText = `> UPLOADING BINARY: ${cursor.value.name}...`;
                 await uploadToDrive(cursor.value.name, cursor.value.data);
                 cursor.continue();
-            } else { status.innerText = "CLOUD SYNC COMPLETE."; alert("SUCCESS."); }
+            } else { 
+                status.innerText = "> CLOUD SYNC COMPLETE. SYSTEM SECURE."; 
+                alert("TITAN CLOUD SYNC SUCCESSFUL."); 
+            }
         };
     }
 }
@@ -138,7 +144,7 @@ async function uploadToDrive(name, blob) {
     const list = await gapi.client.drive.files.list({ q: `name = '${name}' and trashed = false` });
     const fileId = list.result.files.length > 0 ? list.result.files[0].id : null;
     const metadata = { name: name, mimeType: blob.type };
-    const boundary = '-------TITAN';
+    const boundary = '-------TITAN_X';
     
     const reader = new FileReader();
     const blobData = await new Promise(resolve => {
@@ -170,13 +176,13 @@ var Buffer = {
     from: function(s) { return new TextEncoder().encode(s); }
 };
 
-/* ---------- VAULT OPS ---------- */
+/* ---------- VAULT OPERATIONS ---------- */
 function importFile() {
     const file = document.getElementById('fileInput').files[0];
     if (!file) return;
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put({ name: file.name, data: file, type: file.type });
-    tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); alert("COMMITTED."); };
+    tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); alert("COMMITTED TO TITAN STORAGE."); };
 }
 
 function refreshFileList() {
@@ -186,7 +192,7 @@ function refreshFileList() {
         if (cursor) {
             const item = document.createElement('div');
             item.className = 'file-item';
-            item.innerHTML = `<span>${cursor.value.name}</span>
+            item.innerHTML = `<span style="font-family:monospace;">${cursor.value.name}</span>
                 <button onclick="downloadFile('${cursor.value.name}')">⬇️</button>`;
             list.appendChild(item);
             cursor.continue();
@@ -204,7 +210,7 @@ function downloadFile(name) {
 
 function saveNotes() {
     db.transaction("vault", "readwrite").objectStore("vault").put({ id: "notes", content: document.getElementById("notes").value });
-    alert("SAVED.");
+    alert("FRAGMENT SAVED.");
 }
 
 function loadNotes() {
@@ -213,12 +219,24 @@ function loadNotes() {
     };
 }
 
-/* ---------- SYSTEM ---------- */
+/* ---------- SYSTEM CORE ---------- */
+async function updateStorageQuota() {
+    if (navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        const used = (est.usage / (1024 ** 3)).toFixed(2);
+        const total = (est.quota / (1024 ** 3)).toFixed(2);
+        const percent = ((est.usage / est.quota) * 100).toFixed(2);
+        
+        document.getElementById('quota-bar').style.width = percent + "%";
+        document.getElementById('quota-text').innerText = `LOCAL STORAGE: ${used}GB / ${total}GB (${percent}%)`;
+    }
+}
+
 function login() {
     if (document.getElementById("p").value === "1111") {
         document.getElementById("login").style.display = "none";
         document.getElementById("vault").style.display = "block";
-        refreshFileList(); loadNotes();
+        refreshFileList(); loadNotes(); updateStorageQuota();
     } else { deny(); }
 }
 
@@ -227,19 +245,12 @@ function deny() {
     setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
 }
 
-async function updateStorageQuota() {
-    if (navigator.storage && navigator.storage.estimate) {
-        const est = await navigator.storage.estimate();
-        document.getElementById('quota-bar').style.width = ((est.usage / est.quota) * 100) + "%";
-    }
-}
-
-// SECRET ENTRANCE LOGIC
+// SECRET ACCESS POINT
 let secretClicks = 0;
 document.getElementById("secret-trigger").onclick = () => {
     secretClicks++;
     if (secretClicks >= 3) {
-        const phrase = prompt("SYSTEM PHRASE:");
+        const phrase = prompt("PHRASE:");
         if (phrase === "THE OG IS HERE") {
             document.getElementById("chaos").style.display = "none";
             document.getElementById("login").style.display = "flex";
@@ -248,8 +259,9 @@ document.getElementById("secret-trigger").onclick = () => {
     }
 };
 
+// GENERATE CHAOS GRID
 for(let i=0; i<48; i++) {
-    const d = document.createElement("div"); d.className = "box"; d.innerText = "S-DATA-" + i;
+    const d = document.createElement("div"); d.className = "box"; d.innerText = "S-DATA-" + Math.random().toString(36).substring(7).toUpperCase();
     d.onclick = deny; document.getElementById("chaos").appendChild(d);
 }
 </script>
