@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>CHAOS VAULT - TITAN STORAGE</title>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
     <style>
         body { margin:0; background:black; color:#00ffff; font-family:Arial, sans-serif; overflow-x:hidden; }
         #chaos { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; padding:20px; height:100vh; }
@@ -50,8 +50,15 @@
         <button onclick="location.reload()" style="background:none; color:cyan; border:1px solid cyan;">LOGOUT</button>
     </div>
 
+    <div class="section">
+        <h3>☁️ CLOUD SYNC ENGINE</h3>
+        <p style="font-size: 10px; color: #0aa; margin-bottom: 10px;">TARGET: codervaultweb@gmail.com</p>
+        <button onclick="handleCloudOp('sync')">⬆️ SYNC TO CLOUD</button>
+        <button onclick="handleCloudOp('restore')" style="background: #008888;">⬇️ RESTORE FROM CLOUD</button>
+    </div>
+
     <div class="section" id="file-manager">
-        <h3>📁 TITAN FILE ENGINE</h3>
+        <h3>📁 TITAN FILE ENGINE (100GB+)</h3>
         <input type="file" id="fileInput">
         <button onclick="importFile()">⚡ ENCRYPT & STORE</button>
         <div id="fileList" style="margin-top: 20px;"></div>
@@ -60,102 +67,145 @@
     <div class="section">
         <h3>📝 SECURE FRAGMENTS</h3>
         <textarea id="notes" rows="8" placeholder="Enter encrypted data..."></textarea>
-        <div style="display: flex; gap: 10px;">
-            <button onclick="saveNotes()">💾 LOCAL SAVE</button>
-            <button onclick="syncToCloud()" style="background: #4285F4; color: black;">☁️ CLOUD UPLOAD</button>
-            <button onclick="restoreFromCloud()" style="background: transparent; color: #4285F4; border: 1px solid #4285F4;">🔄 RESTORE</button>
-        </div>
+        <button onclick="saveNotes()">💾 SAVE LOCAL</button>
     </div>
 </div>
 
 <div id="secret"></div>
 
 <script>
-/* ---------- CONFIG & ENGINES ---------- */
-const CLIENT_ID = '553428430402-cqsksdvrjslus6bf75na5n07f2cnhv64.apps.googleusercontent.com';
-const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+/* ---------- STORAGE & CORE ---------- */
+let db;
+const DB_NAME = "TitanVaultDB";
+const REAL_PASS = "1111";
+const SHADOW_PASS = "0000";
+const MASTER_USER = "master";
+const MASTER_PASS = "9999";
 
-let db, tokenClient, gapiInited = false, gisInited = false;
-const REAL_PASS = "1111", SHADOW_PASS = "0000", MASTER_USER = "master", MASTER_PASS = "9999";
-
-/* ---------- INITIALIZATION ---------- */
-window.onload = () => {
-    gapi.load('client', async () => {
-        await gapi.client.init({ discoveryDocs: [DISCOVERY_DOC] });
-        gapiInited = true;
-    });
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: SCOPES, callback: '' 
-    });
-    gisInited = true;
-};
-
-const request = indexedDB.open("TitanVaultDB", 1);
+const request = indexedDB.open(DB_NAME, 1);
 request.onupgradeneeded = (e) => {
     db = e.target.result;
     db.createObjectStore("vault", { keyPath: "id" });
     db.createObjectStore("files", { keyPath: "name" });
 };
-request.onsuccess = (e) => { db = e.target.result; updateStorageQuota(); };
+request.onsuccess = (e) => { 
+    db = e.target.result;
+    updateStorageQuota();
+};
 
-/* ---------- CLOUD SYNC LOGIC ---------- */
-async function syncToCloud() {
-    if (!gapiInited) return alert("API NOT READY");
-    tokenClient.callback = async (resp) => {
-        if (resp.error) return;
-        
-        const notes = document.getElementById("notes").value;
-        const metadata = { 'name': 'titan_backup.json', 'mimeType': 'application/json' };
-        const file = new Blob([JSON.stringify({notes, date: new Date()})], {type: 'application/json'});
-        
-        const search = await gapi.client.drive.files.list({ q: "name = 'titan_backup.json' and trashed = false" });
-        const existingFile = search.result.files[0];
+/* ---------- GOOGLE DRIVE INTEGRATION ---------- */
+const CLIENT_ID = '553428430402-cqsksdvrjslus6bf75na5n07f2cnhv64.apps.googleusercontent.com';
+const TARGET_EMAIL = 'codervaultweb@gmail.com';
+let tokenClient;
+let accessToken = null;
+let pendingOp = null;
 
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], {type: 'application/json'}));
-        form.append('file', file);
-
-        let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-        let method = 'POST';
-        if (existingFile) {
-            url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`;
-            method = 'PATCH';
-        }
-
-        await fetch(url, {
-            method: method,
-            headers: new Headers({ 'Authorization': 'Bearer ' + gapi.client.getToken().access_token }),
-            body: form
+function gapiLoaded() {
+    gapi.load('client', async () => {
+        await gapi.client.init({
+            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
         });
-        alert("TITAN CLOUD SYNCED.");
-    };
-    tokenClient.requestAccessToken({prompt: gapi.client.getToken() === null ? 'consent' : ''});
+    });
 }
 
-async function restoreFromCloud() {
-    tokenClient.callback = async (resp) => {
-        const list = await gapi.client.drive.files.list({ q: "name = 'titan_backup.json'" });
-        if (list.result.files.length === 0) return alert("NO BACKUP FOUND");
-        const res = await gapi.client.drive.files.get({ fileId: list.result.files[0].id, alt: 'media' });
-        document.getElementById("notes").value = res.result.notes;
-        saveNotes();
-        alert("DATA RESTORED FROM TITAN CLOUD.");
-    };
-    tokenClient.requestAccessToken({prompt: ''});
+function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        hint: TARGET_EMAIL,
+        callback: (resp) => {
+            if (resp.error) return alert("AUTH FAILED");
+            accessToken = resp.access_token;
+            if (pendingOp === 'sync') executeSync();
+            if (pendingOp === 'restore') executeRestore();
+        },
+    });
 }
 
-/* ---------- CORE VAULT OPERATIONS ---------- */
-async function updateStorageQuota() {
-    if (navigator.storage && navigator.storage.estimate) {
-        const estimate = await navigator.storage.estimate();
-        const usedGB = (estimate.usage / (1024 ** 3)).toFixed(4);
-        const percent = ((estimate.usage / estimate.quota) * 100).toFixed(2);
-        document.getElementById('quota-bar').style.width = percent + "%";
-        document.getElementById('quota-text').innerText = `LOCAL NODE: ${usedGB} GB USED (${percent}%)`;
+function handleCloudOp(op) {
+    pendingOp = op;
+    if (!accessToken) {
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } else {
+        op === 'sync' ? executeSync() : executeRestore();
     }
 }
 
+async function executeSync() {
+    const backup = { notes: "", files: [] };
+    
+    // Collect Notes
+    const nTx = db.transaction("vault", "readonly").objectStore("vault").get("notes");
+    nTx.onsuccess = (e) => {
+        backup.notes = e.target.result ? e.target.result.content : "";
+        
+        // Collect Files
+        const fTx = db.transaction("files", "readonly").objectStore("files").getAll();
+        fTx.onsuccess = async (e) => {
+            backup.files = e.target.result;
+            await uploadToDrive(backup);
+        };
+    };
+}
+
+async function uploadToDrive(content) {
+    const list = await gapi.client.drive.files.list({
+        q: "name = 'titan_vault_backup.json' and trashed = false",
+        fields: 'files(id)',
+    });
+    
+    const fileId = list.result.files.length > 0 ? list.result.files[0].id : null;
+    const metadata = { name: 'titan_vault_backup.json', mimeType: 'application/json' };
+    const body = JSON.stringify(content);
+    
+    const boundary = '-------3141592';
+    const delimiter = "\r\n--" + boundary + "\r\n";
+    const close_delim = "\r\n--" + boundary + "--";
+
+    const multipartRequestBody =
+        delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) +
+        delimiter + 'Content-Type: application/json\r\n\r\n' + body + close_delim;
+
+    const req = gapi.client.request({
+        path: fileId ? `/upload/drive/v3/files/${fileId}` : '/upload/drive/v3/files',
+        method: fileId ? 'PATCH' : 'POST',
+        params: { uploadType: 'multipart' },
+        headers: { 'Content-Type': 'multipart/related; boundary=' + boundary },
+        body: multipartRequestBody
+    });
+
+    req.execute((file) => {
+        if (file.id) alert("✅ TITAN CLOUD SYNCED SUCCESSFULLY");
+    });
+}
+
+async function executeRestore() {
+    const list = await gapi.client.drive.files.list({
+        q: "name = 'titan_vault_backup.json' and trashed = false",
+        fields: 'files(id)',
+    });
+    
+    if (list.result.files.length === 0) return alert("❌ NO BACKUP FOUND");
+    
+    const res = await gapi.client.drive.files.get({
+        fileId: list.result.files[0].id,
+        alt: 'media'
+    });
+
+    const data = res.result;
+    const txV = db.transaction("vault", "readwrite");
+    txV.objectStore("vault").put({ id: "notes", content: data.notes });
+    
+    const txF = db.transaction("files", "readwrite");
+    data.files.forEach(f => txF.objectStore("files").put(f));
+    
+    txF.oncomplete = () => {
+        alert("🚨 RESTORE SUCCESSFUL. REBOOTING...");
+        location.reload();
+    };
+}
+
+/* ---------- ENCRYPTION ENGINE ---------- */
 async function encryptData(data, password) {
     const enc = new TextEncoder();
     const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
@@ -167,8 +217,8 @@ async function encryptData(data, password) {
 }
 
 async function decryptData(obj, password) {
-    const salt = new Uint8Array(atob(obj.salt).split("").map(c => c.charCodeAt(0)));
     const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+    const salt = new Uint8Array(atob(obj.salt).split("").map(c => c.charCodeAt(0)));
     const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
     const iv = new Uint8Array(atob(obj.iv).split("").map(c => c.charCodeAt(0)));
     const cipher = new Uint8Array(atob(obj.cipher).split("").map(c => c.charCodeAt(0)));
@@ -176,45 +226,46 @@ async function decryptData(obj, password) {
     return new TextDecoder().decode(decrypted);
 }
 
+/* ---------- LOGIN & SECURITY ---------- */
 function login() {
-    const u = document.getElementById("u").value, p = document.getElementById("p").value;
-    if (u === MASTER_USER && p === MASTER_PASS) showMasterLogs();
-    else if (p === REAL_PASS) launchVault(false);
-    else if (p === SHADOW_PASS) { silentAlarm(); launchVault(true); }
-    else deny();
+    const u = document.getElementById("u").value;
+    const p = document.getElementById("p").value;
+    if (u === MASTER_USER && p === MASTER_PASS) { showMasterLogs(); } 
+    else if (p === REAL_PASS) { launchVault(false); } 
+    else if (p === SHADOW_PASS) { silentAlarm(); launchVault(true); } 
+    else { deny(); }
 }
 
 function launchVault(isDecoy) {
+    document.getElementById("chaos").style.display = "none";
     document.getElementById("login").style.display = "none";
     document.getElementById("vault").style.display = "block";
-    if (isDecoy) {
-        document.getElementById("vault-title").innerText = "🔐 PERSONAL STORAGE v1.2";
-        document.getElementById("file-manager").style.display = "none";
-        document.getElementById("notes").value = "Note: Call the bank. Buy milk.";
-    } else {
-        refreshFileList(); loadNotes();
-    }
+    updateStorageQuota();
+    if (!isDecoy) { refreshFileList(); loadNotes(); }
 }
 
+/* ---------- DATA OPERATIONS ---------- */
 async function importFile() {
-    const file = document.getElementById('fileInput').files[0], password = prompt("Encryption Key:");
+    const file = document.getElementById('fileInput').files[0];
+    const password = prompt("Encryption Key:");
     if (!file || !password) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
         const encrypted = await encryptData(e.target.result, password);
         const tx = db.transaction("files", "readwrite");
         tx.objectStore("files").put({ name: file.name, data: encrypted });
-        tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); };
+        tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); alert("STORED."); };
     };
     reader.readAsDataURL(file);
 }
 
 async function exportFile(name) {
-    const password = prompt("Decrypt Key:"), tx = db.transaction("files", "readonly");
-    tx.objectStore("files").get(name).onsuccess = async (e) => {
+    const password = prompt("Decrypt Key:");
+    db.transaction("files", "readonly").objectStore("files").get(name).onsuccess = async (e) => {
         try {
             const dec = await decryptData(e.target.result.data, password);
-            const a = document.createElement('a'); a.href = dec; a.download = name; a.click();
+            const a = document.createElement('a');
+            a.href = dec; a.download = name; a.click();
         } catch { alert("DECRYPTION FAILED."); }
     };
 }
@@ -222,6 +273,7 @@ async function exportFile(name) {
 async function saveNotes() {
     const tx = db.transaction("vault", "readwrite");
     tx.objectStore("vault").put({ id: "notes", content: document.getElementById("notes").value });
+    alert("LOCAL SAVE SUCCESS.");
 }
 
 function loadNotes() {
@@ -231,27 +283,48 @@ function loadNotes() {
 }
 
 function refreshFileList() {
-    const list = document.getElementById('fileList'); list.innerHTML = "";
+    const list = document.getElementById('fileList');
+    list.innerHTML = "";
     db.transaction("files", "readonly").objectStore("files").openCursor().onsuccess = (e) => {
         const cursor = e.target.result;
         if (cursor) {
-            const item = document.createElement('div'); item.className = 'file-item';
+            const item = document.createElement('div');
+            item.className = 'file-item';
             item.innerHTML = `<span class="file-info">${cursor.value.name}</span>
             <div><button onclick="exportFile('${cursor.value.name}')">⬇️</button>
             <button onclick="deleteFile('${cursor.value.name}')" style="background:red">🗑️</button></div>`;
-            list.appendChild(item); cursor.continue();
+            list.appendChild(item);
+            cursor.continue();
         }
     };
+}
+
+async function updateStorageQuota() {
+    if (navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        const percent = ((est.usage / est.quota) * 100).toFixed(2);
+        document.getElementById('quota-bar').style.width = percent + "%";
+        document.getElementById('quota-text').innerText = `LOCAL STORAGE: ${percent}% USED`;
+    }
 }
 
 function deleteFile(name) {
     if(confirm("Erase?")) {
         db.transaction("files", "readwrite").objectStore("files").delete(name);
-        refreshFileList(); updateStorageQuota();
+        refreshFileList();
+        updateStorageQuota();
     }
 }
 
-/* ---------- UI GRID & EXTRAS ---------- */
+/* ---------- UI GRID ---------- */
+for(let i=0; i<48; i++) {
+    const d = document.createElement("div");
+    d.className = "box";
+    d.innerText = "S-DATA-" + Math.random().toString(36).slice(2,7).toUpperCase();
+    d.onclick = deny;
+    document.getElementById("chaos").appendChild(d);
+}
+
 let secretClicks = 0;
 document.getElementById("secret").onclick = () => {
     if (++secretClicks >= 3) {
@@ -277,15 +350,8 @@ function silentAlarm() {
 function showMasterLogs() {
     const logs = JSON.parse(localStorage.getItem("m_logs") || "[]");
     document.body.innerHTML = `<div style="padding:40px; color:red; font-family:monospace; background: black; min-height: 100vh;">
-        <h1>👑 MASTER COMMAND CENTER</h1>
-        <button onclick="location.reload()">EXIT</button>
-        <hr>${logs.reverse().map(l => `<div style="border:1px solid red; margin:10px; padding:10px;">[${l.time}] ${l.event}</div>`).join('')}</div>`;
-}
-
-for(let i=0; i<48; i++) {
-    const d = document.createElement("div"); d.className = "box";
-    d.innerText = "S-DATA-" + Math.random().toString(36).slice(2,7).toUpperCase();
-    d.onclick = deny; document.getElementById("chaos").appendChild(d);
+        <h1>👑 MASTER COMMAND</h1><button onclick="location.reload()">EXIT</button>
+        <hr>${logs.reverse().map(l => `<div>[${l.time}] ${l.event}</div>`).join('')}</div>`;
 }
 </script>
 </body>
