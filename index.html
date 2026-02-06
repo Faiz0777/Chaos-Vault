@@ -2,250 +2,191 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CHAOS VAULT - TITAN STORAGE</title>
+    <title>CHAOS VAULT - TITAN DIRECT CLOUD</title>
     <script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
     <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
     <style>
         body { margin:0; background:black; color:#00ffff; font-family:Arial, sans-serif; overflow-x:hidden; }
         #chaos { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; padding:20px; height:100vh; }
-        .box { border:1px solid cyan; display:flex; justify-content:center; align-items:center; font-size:11px; cursor:pointer; height: 100px; opacity: 0.5; transition: 0.3s; border-radius: 2px; }
+        .box { border:1px solid cyan; display:flex; justify-content:center; align-items:center; font-size:11px; cursor:pointer; height: 100px; opacity: 0.5; transition: 0.3s; }
         .box:hover { opacity: 1; background: rgba(0,255,255,0.1); }
         
         #login { position:fixed; inset:0; display:none; background:black; align-items:center; justify-content:center; flex-direction:column; z-index: 2000; }
         #login input { width:260px; padding:12px; margin:10px; background:black; color:cyan; border:1px solid cyan; outline: none; font-family: monospace; }
         
-        #vault { display:none; padding:40px; max-width: 900px; margin: auto; }
-        .section { border:1px solid cyan; margin:20px 0; padding:20px; background: rgba(0,255,255,0.02); }
+        #vault { display:none; padding:40px; max-width: 800px; margin: auto; }
+        .section { border:1px solid cyan; margin:20px 0; padding:20px; background: rgba(0,255,255,0.05); }
         
-        textarea { width:100%; background:black; color:cyan; border:1px solid #005555; padding:12px; margin: 10px 0; box-sizing: border-box; font-family: 'Courier New', monospace; outline: none; resize: vertical;}
+        textarea { width:100%; background:black; color:cyan; border:1px solid #005555; padding:12px; margin: 10px 0; box-sizing: border-box; font-family: monospace; outline: none; resize: vertical; }
         
-        button { background: cyan; color: black; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+        button { background: cyan; color: black; border: none; padding: 12px 24px; cursor: pointer; font-weight: bold; transition: 0.2s; text-transform: uppercase; }
         button:hover { background: white; box-shadow: 0 0 15px cyan; }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; }
 
-        #quota-wrap { width: 100%; height: 10px; background: #002222; margin: 10px 0; border: 1px solid #004444; }
-        #quota-bar { height: 100%; background: cyan; width: 0%; transition: 0.5s; box-shadow: 0 0 10px cyan; }
-        #quota-text { font-size: 11px; color: #00ffff; text-transform: uppercase; letter-spacing: 1px; }
-
-        .file-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #003333; padding: 12px 0; }
+        #status-display { font-family: monospace; font-size: 13px; color: #0ff; margin-top: 15px; padding: 10px; border-left: 3px solid cyan; background: rgba(0,255,255,0.05); display: none; }
+        
         #alert { position:fixed; inset:0; display:none; background:black; color:red; z-index:3000; align-items:center; justify-content:center; font-size:32px; text-align:center; animation:blink 0.4s infinite; font-weight: bold; }
         @keyframes blink { 50%{opacity:0.2;} }
         
-        #secret-trigger { position:fixed; bottom:0; right:0; width:50px; height:50px; cursor: pointer; z-index: 5000; background: transparent; }
+        #secret-trigger { position:fixed; bottom:0; right:0; width:60px; height:60px; cursor: pointer; z-index: 5000; background: transparent; }
     </style>
 </head>
 <body>
 
 <div id="chaos"></div>
-<div id="alert">SYSTEM BREACH DETECTED<br>ACCESS RESTRICTED</div>
+<div id="alert">ACCESS RESTRICTED<br>UNAUTHORIZED ENTRY</div>
 
 <div id="login">
-    <h2 style="letter-spacing: 4px;">ACCESS POINT</h2>
-    <input id="u" placeholder="IDENTITY" autocomplete="off">
-    <input id="p" type="password" placeholder="PASSCODE" autocomplete="off">
+    <h2 style="letter-spacing: 5px;">SYSTEM LOGIN</h2>
+    <input id="p" type="password" placeholder="ENTER PASSCODE">
     <button onclick="login()">INITIALIZE</button>
 </div>
 
 <div id="vault">
-    <h1 style="border-bottom: 2px solid cyan; padding-bottom: 10px; color: cyan;">🔐 TITAN VAULT v2.1</h1>
+    <h1 style="color: cyan; border-bottom: 2px solid cyan; padding-bottom: 10px;">🚀 TITAN DIRECT CLOUD</h1>
     
-    <div class="section" style="border:none; padding:0;">
-        <div id="quota-text">LOCAL STORAGE: ANALYZING...</div>
-        <div id="quota-wrap"><div id="quota-bar"></div></div>
-    </div>
-
     <div class="section">
-        <h3>☁️ TITAN CLOUD SYNC</h3>
-        <p style="font-size: 11px; color: #088;">MIRROR: <strong>codervaultweb@gmail.com</strong></p>
-        <button id="syncBtn" onclick="handleCloudOp('sync')">⬆️ PUSH TO CLOUD</button>
-        <button id="restoreBtn" onclick="handleCloudOp('restore')" style="background: #008b8b;">⬇️ PULL FROM CLOUD</button>
-        <div id="sync-status" style="font-size: 10px; margin-top: 10px; color: #0ff; font-family: monospace;"></div>
-    </div>
-
-    <div class="section">
-        <h3>📁 STORAGE ENGINE</h3>
+        <h3>📂 DIRECT FILE UPLINK</h3>
+        <p style="font-size: 11px; color: #088;">Target Account: <strong>codervaultweb@gmail.com</strong></p>
         <input type="file" id="fileInput">
-        <button onclick="importFile()">⚡ UPLOAD BINARY</button>
-        <div id="fileList" style="margin-top: 15px;"></div>
+        <br><br>
+        <button id="uploadBtn" onclick="initiateAction('upload')">⬆️ STREAM TO DRIVE</button>
+        <div id="status-display"></div>
     </div>
 
     <div class="section">
-        <h3>📝 SECURE FRAGMENTS</h3>
-        <textarea id="notes" rows="6"></textarea>
-        <button onclick="saveNotes()">💾 COMMIT TO DISK</button>
+        <h3>📝 CLOUD FRAGMENTS</h3>
+        <textarea id="notes" rows="8" placeholder="Enter notes to sync..."></textarea>
+        <button id="saveNotesBtn" onclick="initiateAction('notes')">💾 SYNC TO DRIVE</button>
     </div>
 </div>
 
 <div id="secret-trigger"></div>
 
 <script>
-let db;
 const CLIENT_ID = '553428430402-cqsksdvrjslus6bf75na5n07f2cnhv64.apps.googleusercontent.com';
 const TARGET_EMAIL = 'codervaultweb@gmail.com';
-let tokenClient, accessToken = null, pendingOp = null;
+let tokenClient, accessToken = null;
+let currentPendingAction = null;
 
-/* ---------- DATABASE ---------- */
-const request = indexedDB.open("TitanVaultDB", 3);
-request.onupgradeneeded = (e) => {
-    let d = e.target.result;
-    if(!d.objectStoreNames.contains("vault")) d.createObjectStore("vault", { keyPath: "id" });
-    if(!d.objectStoreNames.contains("files")) d.createObjectStore("files", { keyPath: "name" });
-};
-request.onsuccess = (e) => { 
-    db = e.target.result; 
-    updateStorageQuota(); 
-};
-
-/* ---------- CLOUD SYNC (STREAMING) ---------- */
+/* ---------- GOOGLE API SETUP ---------- */
 function gapiLoaded() { 
-    gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })); 
+    gapi.load('client', () => gapi.client.init({})); 
 }
 
 function gisLoaded() {
     tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: 'https://www.googleapis.com/auth/drive.file', hint: TARGET_EMAIL,
-        callback: (resp) => { 
-            if (resp.error) return;
-            accessToken = resp.access_token; 
-            if(pendingOp) executeOp(); 
-        }
-    });
-}
-
-function handleCloudOp(op) {
-    pendingOp = op;
-    if (!accessToken) tokenClient.requestAccessToken({ prompt: 'select_account' });
-    else executeOp();
-}
-
-async function executeOp() {
-    const status = document.getElementById('sync-status');
-    if(pendingOp === 'sync') {
-        status.innerText = "> INITIALIZING TITAN UPLINK...";
-        // Upload Notes
-        await uploadToDrive('notes_backup.txt', new Blob([document.getElementById('notes').value], {type:'text/plain'}));
-        
-        // Upload Files Individually to bypass memory limits
-        const tx = db.transaction("files", "readonly");
-        tx.objectStore("files").openCursor().onsuccess = async (e) => {
-            const cursor = e.target.result;
-            if (cursor) {
-                status.innerText = `> UPLOADING BINARY: ${cursor.value.name}...`;
-                await uploadToDrive(cursor.value.name, cursor.value.data);
-                cursor.continue();
-            } else { 
-                status.innerText = "> CLOUD SYNC COMPLETE. SYSTEM SECURE."; 
-                alert("TITAN CLOUD SYNC SUCCESSFUL."); 
+        client_id: CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        hint: TARGET_EMAIL,
+        callback: (resp) => {
+            if (resp.error) {
+                updateStatus("AUTH ERROR: " + resp.error, true);
+                return;
             }
-        };
-    }
-}
-
-async function uploadToDrive(name, blob) {
-    const list = await gapi.client.drive.files.list({ q: `name = '${name}' and trashed = false` });
-    const fileId = list.result.files.length > 0 ? list.result.files[0].id : null;
-    const metadata = { name: name, mimeType: blob.type };
-    const boundary = '-------TITAN_X';
-    
-    const reader = new FileReader();
-    const blobData = await new Promise(resolve => {
-        reader.onload = () => resolve(reader.result);
-        reader.readAsArrayBuffer(blob);
-    });
-
-    const body = Buffer.concat([
-        Buffer.from(`\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${blob.type}\r\n\r\n`),
-        Buffer.from(blobData),
-        Buffer.from(`\r\n--${boundary}--`)
-    ]);
-
-    await fetch(`https://www.googleapis.com/upload/drive/v3/files${fileId ? '/' + fileId : ''}?uploadType=multipart`, {
-        method: fileId ? 'PATCH' : 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
-        body: body
-    });
-}
-
-var Buffer = {
-    concat: function(list) {
-        let len = list.reduce((a, b) => a + b.length, 0);
-        let res = new Uint8Array(len);
-        let pos = 0;
-        for (let a of list) { res.set(a, pos); pos += a.length; }
-        return res;
-    },
-    from: function(s) { return new TextEncoder().encode(s); }
-};
-
-/* ---------- VAULT OPERATIONS ---------- */
-function importFile() {
-    const file = document.getElementById('fileInput').files[0];
-    if (!file) return;
-    const tx = db.transaction("files", "readwrite");
-    tx.objectStore("files").put({ name: file.name, data: file, type: file.type });
-    tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); alert("COMMITTED TO TITAN STORAGE."); };
-}
-
-function refreshFileList() {
-    const list = document.getElementById('fileList'); list.innerHTML = "";
-    db.transaction("files", "readonly").objectStore("files").openCursor().onsuccess = (e) => {
-        const cursor = e.target.result;
-        if (cursor) {
-            const item = document.createElement('div');
-            item.className = 'file-item';
-            item.innerHTML = `<span style="font-family:monospace;">${cursor.value.name}</span>
-                <button onclick="downloadFile('${cursor.value.name}')">⬇️</button>`;
-            list.appendChild(item);
-            cursor.continue();
+            accessToken = resp.access_token;
+            if (currentPendingAction) currentPendingAction();
         }
-    };
+    });
 }
 
-function downloadFile(name) {
-    db.transaction("files", "readonly").objectStore("files").get(name).onsuccess = (e) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(e.target.result.data);
-        a.download = name; a.click();
-    };
-}
+/* ---------- CORE ACTIONS ---------- */
+function initiateAction(type) {
+    if (type === 'upload') currentPendingAction = uploadFile;
+    if (type === 'notes') currentPendingAction = syncNotes;
 
-function saveNotes() {
-    db.transaction("vault", "readwrite").objectStore("vault").put({ id: "notes", content: document.getElementById("notes").value });
-    alert("FRAGMENT SAVED.");
-}
-
-function loadNotes() {
-    db.transaction("vault", "readonly").objectStore("vault").get("notes").onsuccess = (e) => {
-        if (e.target.result) document.getElementById("notes").value = e.target.result.content;
-    };
-}
-
-/* ---------- SYSTEM CORE ---------- */
-async function updateStorageQuota() {
-    if (navigator.storage && navigator.storage.estimate) {
-        const est = await navigator.storage.estimate();
-        const used = (est.usage / (1024 ** 3)).toFixed(2);
-        const total = (est.quota / (1024 ** 3)).toFixed(2);
-        const percent = ((est.usage / est.quota) * 100).toFixed(2);
-        
-        document.getElementById('quota-bar').style.width = percent + "%";
-        document.getElementById('quota-text').innerText = `LOCAL STORAGE: ${used}GB / ${total}GB (${percent}%)`;
+    if (!accessToken) {
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } else {
+        currentPendingAction();
     }
 }
 
+async function uploadFile() {
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput.files[0];
+    if (!file) return alert("Please select a file.");
+
+    const btn = document.getElementById('uploadBtn');
+    btn.disabled = true;
+    updateStatus(`STREAMING: ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)...`);
+
+    try {
+        const metadata = { name: file.name, mimeType: file.type };
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', file);
+
+        const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+            body: form
+        });
+
+        if (response.ok) {
+            updateStatus(`✅ SUCCESS: ${file.name} uploaded to Drive.`);
+            fileInput.value = ""; // Clear input
+        } else {
+            const err = await response.json();
+            throw new Error(err.error.message);
+        }
+    } catch (err) {
+        updateStatus("❌ UPLOAD FAILED: " + err.message, true);
+    } finally {
+        btn.disabled = false;
+        currentPendingAction = null;
+    }
+}
+
+async function syncNotes() {
+    const content = document.getElementById('notes').value;
+    const btn = document.getElementById('saveNotesBtn');
+    btn.disabled = true;
+    updateStatus("SYNCING NOTES TO DRIVE...");
+
+    try {
+        const metadata = { name: 'vault_notes.txt', mimeType: 'text/plain' };
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', new Blob([content], { type: 'text/plain' }));
+
+        const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+            body: form
+        });
+
+        if (response.ok) {
+            updateStatus("✅ NOTES SYNCED SUCCESSFULLY.");
+        } else {
+            throw new Error("Sync Failed");
+        }
+    } catch (err) {
+        updateStatus("❌ SYNC FAILED: " + err.message, true);
+    } finally {
+        btn.disabled = false;
+        currentPendingAction = null;
+    }
+}
+
+function updateStatus(msg, isError = false) {
+    const display = document.getElementById('status-display');
+    display.style.display = "block";
+    display.style.color = isError ? "red" : "#0ff";
+    display.innerText = "> " + msg;
+}
+
+/* ---------- LOGIN & SECRET ENTRANCE ---------- */
 function login() {
     if (document.getElementById("p").value === "1111") {
         document.getElementById("login").style.display = "none";
         document.getElementById("vault").style.display = "block";
-        refreshFileList(); loadNotes(); updateStorageQuota();
-    } else { deny(); }
+    } else {
+        document.getElementById("alert").style.display = "flex";
+        setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
+    }
 }
 
-function deny() {
-    document.getElementById("alert").style.display = "flex";
-    setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
-}
-
-// SECRET ACCESS POINT
 let secretClicks = 0;
 document.getElementById("secret-trigger").onclick = () => {
     secretClicks++;
@@ -259,10 +200,16 @@ document.getElementById("secret-trigger").onclick = () => {
     }
 };
 
-// GENERATE CHAOS GRID
+/* ---------- CHAOS GRID GENERATION ---------- */
 for(let i=0; i<48; i++) {
-    const d = document.createElement("div"); d.className = "box"; d.innerText = "S-DATA-" + Math.random().toString(36).substring(7).toUpperCase();
-    d.onclick = deny; document.getElementById("chaos").appendChild(d);
+    const d = document.createElement("div"); 
+    d.className = "box"; 
+    d.innerText = "DATA-NODE-" + i;
+    d.onclick = () => {
+        document.getElementById("alert").style.display = "flex";
+        setTimeout(() => document.getElementById("alert").style.display = "none", 1500);
+    };
+    document.getElementById("chaos").appendChild(d);
 }
 </script>
 </body>
