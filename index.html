@@ -21,18 +21,17 @@
         
         button { background: cyan; color: black; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px; }
         button:hover { background: white; box-shadow: 0 0 15px cyan; }
-        button:disabled { background: #333; color: #666; cursor: not-allowed; }
 
         #quota-wrap { width: 100%; height: 6px; background: #002222; margin: 10px 0; }
         #quota-bar { height: 100%; background: cyan; width: 0%; transition: 0.5s; }
         #quota-text { font-size: 10px; color: #00aaaa; }
 
         .file-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #003333; padding: 12px 0; }
-        .file-name { font-family: monospace; font-size: 14px; }
-
         #alert { position:fixed; inset:0; display:none; background:black; color:red; z-index:3000; align-items:center; justify-content:center; font-size:32px; text-align:center; animation:blink 0.4s infinite; font-weight: bold; }
         @keyframes blink { 50%{opacity:0.2;} }
-        #secret-trigger { position:fixed; bottom:0; right:0; width:50px; height:50px; cursor: default; z-index: 5000; }
+        
+        /* THE SECRET ENTRANCE */
+        #secret-trigger { position:fixed; bottom:0; right:0; width:40px; height:40px; cursor: pointer; z-index: 5000; background: transparent; }
     </style>
 </head>
 <body>
@@ -58,8 +57,8 @@
     <div class="section">
         <h3>☁️ TITAN CLOUD SYNC</h3>
         <p style="font-size: 11px; color: #088;">TARGET: <strong>codervaultweb@gmail.com</strong></p>
-        <button id="syncBtn" onclick="handleCloudOp('sync')">⬆️ PUSH DATA</button>
-        <button id="restoreBtn" onclick="handleCloudOp('restore')" style="background: #008b8b;">⬇️ PULL DATA</button>
+        <button id="syncBtn" onclick="handleCloudOp('sync')">⬆️ PUSH TO CLOUD</button>
+        <button id="restoreBtn" onclick="handleCloudOp('restore')" style="background: #008b8b;">⬇️ PULL FROM CLOUD</button>
         <div id="sync-status" style="font-size: 10px; margin-top: 10px; color: #0ff;"></div>
     </div>
 
@@ -72,7 +71,7 @@
 
     <div class="section">
         <h3>📝 SECURE FRAGMENTS</h3>
-        <textarea id="notes" rows="6" placeholder="Awaiting input..."></textarea>
+        <textarea id="notes" rows="6"></textarea>
         <button onclick="saveNotes()">💾 COMMIT TO DISK</button>
     </div>
 </div>
@@ -85,7 +84,7 @@ const CLIENT_ID = '553428430402-cqsksdvrjslus6bf75na5n07f2cnhv64.apps.googleuser
 const TARGET_EMAIL = 'codervaultweb@gmail.com';
 let tokenClient, accessToken = null, pendingOp = null;
 
-/* ---------- INDEXEDDB (RAW BLOB STORAGE) ---------- */
+/* ---------- DATABASE ---------- */
 const request = indexedDB.open("TitanVaultDB", 3);
 request.onupgradeneeded = (e) => {
     let d = e.target.result;
@@ -94,18 +93,16 @@ request.onupgradeneeded = (e) => {
 };
 request.onsuccess = (e) => { db = e.target.result; updateStorageQuota(); };
 
-/* ---------- GOOGLE DRIVE CORE ---------- */
+/* ---------- GOOGLE DRIVE SYNC ---------- */
 function gapiLoaded() { 
     gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] })); 
 }
 
 function gisLoaded() {
     tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, 
-        scope: 'https://www.googleapis.com/auth/drive.file', 
-        hint: TARGET_EMAIL,
+        client_id: CLIENT_ID, scope: 'https://www.googleapis.com/auth/drive.file', hint: TARGET_EMAIL,
         callback: (resp) => { 
-            if (resp.error) return alert("AUTH DENIED");
+            if (resp.error) return;
             accessToken = resp.access_token; 
             if(pendingOp) executeOp(); 
         }
@@ -121,116 +118,76 @@ function handleCloudOp(op) {
 async function executeOp() {
     const status = document.getElementById('sync-status');
     if(pendingOp === 'sync') {
-        status.innerText = "INITIALIZING SYNC...";
-        
-        // 1. Sync Notes
-        const notes = document.getElementById('notes').value;
-        await uploadToDrive('notes_backup.txt', new Blob([notes], {type:'text/plain'}));
-        
-        // 2. Sync Files (Individual Binary Streams)
+        status.innerText = "SYNC STARTING...";
+        // Upload Notes
+        await uploadToDrive('notes_backup.txt', new Blob([document.getElementById('notes').value], {type:'text/plain'}));
+        // Upload Files Individually
         const tx = db.transaction("files", "readonly");
-        const store = tx.objectStore("files");
-        const req = store.openCursor();
-        
-        req.onsuccess = async (e) => {
+        tx.objectStore("files").openCursor().onsuccess = async (e) => {
             const cursor = e.target.result;
             if (cursor) {
                 status.innerText = `UPLOADING: ${cursor.value.name}...`;
                 await uploadToDrive(cursor.value.name, cursor.value.data);
                 cursor.continue();
-            } else { 
-                status.innerText = "CLOUD SYNC COMPLETE."; 
-                alert("TITAN CLOUD UPDATED.");
-            }
+            } else { status.innerText = "CLOUD SYNC COMPLETE."; alert("SUCCESS."); }
         };
-    } else {
-        alert("Restore feature initiated. Downloading manifests...");
-        // Restore logic to pull from drive would be implemented here
     }
 }
 
 async function uploadToDrive(name, blob) {
-    // Check if file exists to update it
-    const list = await gapi.client.drive.files.list({
-        q: `name = '${name}' and trashed = false`,
-        fields: 'files(id)'
-    });
-    
+    const list = await gapi.client.drive.files.list({ q: `name = '${name}' and trashed = false` });
     const fileId = list.result.files.length > 0 ? list.result.files[0].id : null;
     const metadata = { name: name, mimeType: blob.type };
+    const boundary = '-------TITAN';
     
-    const boundary = '-------TITANVAULT';
-    const delimiter = "\r\n--" + boundary + "\r\n";
-    const close_delim = "\r\n--" + boundary + "--";
-
-    // Use ArrayBuffer for large file safety
     const reader = new FileReader();
     const blobData = await new Promise(resolve => {
         reader.onload = () => resolve(reader.result);
         reader.readAsArrayBuffer(blob);
     });
 
-    const multipartRequestBody = Buffer.concat([
-        Buffer.from(delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) + delimiter),
-        Buffer.from('Content-Type: ' + blob.type + '\r\n\r\n'),
+    const body = Buffer.concat([
+        Buffer.from(`\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${blob.type}\r\n\r\n`),
         Buffer.from(blobData),
-        Buffer.from(close_delim)
+        Buffer.from(`\r\n--${boundary}--`)
     ]);
 
     await fetch(`https://www.googleapis.com/upload/drive/v3/files${fileId ? '/' + fileId : ''}?uploadType=multipart`, {
         method: fileId ? 'PATCH' : 'POST',
-        headers: { 
-            'Authorization': 'Bearer ' + accessToken,
-            'Content-Type': 'multipart/related; boundary=' + boundary 
-        },
-        body: multipartRequestBody
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
+        body: body
     });
 }
 
-// Polyfill for Buffer in browser for the multipart construction
-if (typeof Buffer === 'undefined') {
-    var Buffer = {
-        concat: function(list) {
-            let totalLength = list.reduce((acc, val) => acc + val.length, 0);
-            let result = new Uint8Array(totalLength);
-            let offset = 0;
-            for (let array of list) {
-                result.set(array, offset);
-                offset += array.length;
-            }
-            return result;
-        },
-        from: function(data) {
-            return new TextEncoder().encode(data);
-        }
-    };
-}
+var Buffer = {
+    concat: function(list) {
+        let len = list.reduce((a, b) => a + b.length, 0);
+        let res = new Uint8Array(len);
+        let pos = 0;
+        for (let a of list) { res.set(a, pos); pos += a.length; }
+        return res;
+    },
+    from: function(s) { return new TextEncoder().encode(s); }
+};
 
-/* ---------- LOCAL OPERATIONS ---------- */
+/* ---------- VAULT OPS ---------- */
 function importFile() {
     const file = document.getElementById('fileInput').files[0];
     if (!file) return;
-    
     const tx = db.transaction("files", "readwrite");
     tx.objectStore("files").put({ name: file.name, data: file, type: file.type });
-    tx.oncomplete = () => { 
-        refreshFileList(); 
-        updateStorageQuota(); 
-        alert("BINARY STORED LOCALLY."); 
-    };
+    tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); alert("COMMITTED."); };
 }
 
 function refreshFileList() {
-    const list = document.getElementById('fileList'); 
-    list.innerHTML = "";
+    const list = document.getElementById('fileList'); list.innerHTML = "";
     db.transaction("files", "readonly").objectStore("files").openCursor().onsuccess = (e) => {
         const cursor = e.target.result;
         if (cursor) {
             const item = document.createElement('div');
             item.className = 'file-item';
-            item.innerHTML = `<span class="file-name">${cursor.value.name}</span>
-                <div><button onclick="downloadFile('${cursor.value.name}')">⬇️</button>
-                <button onclick="deleteFile('${cursor.value.name}')" style="background:red; margin-left:5px;">🗑️</button></div>`;
+            item.innerHTML = `<span>${cursor.value.name}</span>
+                <button onclick="downloadFile('${cursor.value.name}')">⬇️</button>`;
             list.appendChild(item);
             cursor.continue();
         }
@@ -239,23 +196,15 @@ function refreshFileList() {
 
 function downloadFile(name) {
     db.transaction("files", "readonly").objectStore("files").get(name).onsuccess = (e) => {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(e.target.result.data);
-        link.download = name; 
-        link.click();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(e.target.result.data);
+        a.download = name; a.click();
     };
-}
-
-function deleteFile(name) {
-    if(confirm("Wipe from disk?")) {
-        db.transaction("files", "readwrite").objectStore("files").delete(name);
-        refreshFileList();
-    }
 }
 
 function saveNotes() {
     db.transaction("vault", "readwrite").objectStore("vault").put({ id: "notes", content: document.getElementById("notes").value });
-    alert("FRAGMENT COMMITTED.");
+    alert("SAVED.");
 }
 
 function loadNotes() {
@@ -264,47 +213,44 @@ function loadNotes() {
     };
 }
 
-/* ---------- AUTH & GRID ---------- */
+/* ---------- SYSTEM ---------- */
 function login() {
-    const p = document.getElementById("p").value;
-    if (p === "1111") {
-        document.getElementById("chaos").style.display = "none";
+    if (document.getElementById("p").value === "1111") {
         document.getElementById("login").style.display = "none";
         document.getElementById("vault").style.display = "block";
         refreshFileList(); loadNotes();
-    } else {
-        document.getElementById("alert").style.display = "flex";
-        setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
-    }
+    } else { deny(); }
+}
+
+function deny() {
+    document.getElementById("alert").style.display = "flex";
+    setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
 }
 
 async function updateStorageQuota() {
     if (navigator.storage && navigator.storage.estimate) {
         const est = await navigator.storage.estimate();
-        const percent = ((est.usage / est.quota) * 100).toFixed(2);
-        document.getElementById('quota-bar').style.width = percent + "%";
-        document.getElementById('quota-text').innerText = `LOCAL DISK: ${percent}% OCCUPIED`;
+        document.getElementById('quota-bar').style.width = ((est.usage / est.quota) * 100) + "%";
     }
 }
 
+// SECRET ENTRANCE LOGIC
 let secretClicks = 0;
 document.getElementById("secret-trigger").onclick = () => {
-    if (++secretClicks >= 3) {
-        document.getElementById("chaos").style.display = "none";
-        document.getElementById("login").style.display = "flex";
+    secretClicks++;
+    if (secretClicks >= 3) {
+        const phrase = prompt("SYSTEM PHRASE:");
+        if (phrase === "THE OG IS HERE") {
+            document.getElementById("chaos").style.display = "none";
+            document.getElementById("login").style.display = "flex";
+        }
         secretClicks = 0;
     }
 };
 
 for(let i=0; i<48; i++) {
-    const d = document.createElement("div"); 
-    d.className = "box"; 
-    d.innerText = "DATA_NODE_" + Math.random().toString(36).substring(7).toUpperCase();
-    d.onclick = () => {
-        document.getElementById("alert").style.display = "flex";
-        setTimeout(() => document.getElementById("alert").style.display = "none", 1500);
-    };
-    document.getElementById("chaos").appendChild(d);
+    const d = document.createElement("div"); d.className = "box"; d.innerText = "S-DATA-" + i;
+    d.onclick = deny; document.getElementById("chaos").appendChild(d);
 }
 </script>
 </body>
