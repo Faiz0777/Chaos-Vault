@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CHAOS VAULT - TITAN STORAGE</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <style>
+        body { margin:0; background:black; color:#00ffff; font-family:Arial, sans-serif; overflow-x:hidden; }
+        #chaos { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; padding:20px; height:100vh; }
+        .box { border:1px solid cyan; display:flex; justify-content:center; align-items:center; font-size:12px; cursor:pointer; height: 100px; opacity: 0.6; transition: 0.3s; }
+        .box:hover { opacity: 1; background: rgba(0,255,255,0.1); }
+        #login { position:fixed; inset:0; display:none; background:black; align-items:center; justify-content:center; flex-direction:column; z-index: 2000; }
+        #login input { width:250px; padding:12px; margin:10px; background:black; color:cyan; border:1px solid cyan; outline: none; }
+        #vault { display:none; padding:40px; max-width: 900px; margin: auto; }
+        .section { border:2px solid cyan; margin:20px 0; padding:20px; background: rgba(0,255,255,0.05); }
+        textarea { width:100%; background:black; color:cyan; border:1px solid cyan; padding:12px; margin: 10px 0; box-sizing: border-box; font-family: monospace; outline: none;}
+        button { background: cyan; color: black; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-right: 5px;}
+        button:hover { background: white; box-shadow: 0 0 15px cyan; }
+        #quota-wrap { width: 100%; height: 10px; background: #003333; margin: 10px 0; position: relative; }
+        #quota-bar { height: 100%; background: cyan; width: 0%; transition: 0.5s; }
+        #quota-text { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #004444; padding: 10px; }
+        .file-info { color: #0ff; font-family: monospace; }
+        #alert { position:fixed; inset:0; display:none; background:black; color:red; z-index:3000; align-items:center; justify-content:center; font-size:48px; text-align:center; animation:blink 0.5s infinite; }
+        @keyframes blink { 50%{opacity:0;} }
+        #secret { position:fixed; bottom:0; right:0; width:40px; height:40px; opacity:0; z-index: 4000; }
+    </style>
+</head>
+<body>
+
+<div id="chaos"></div>
+<div id="alert">🚨⚠️ ACCESS DENIED ⚠️🚨</div>
+
+<div id="login">
+    <h2 id="access-title">SYSTEM ACCESS POINT</h2>
+    <input id="u" placeholder="Identity">
+    <input id="p" type="password" placeholder="Passcode">
+    <button onclick="login()">EXECUTE</button>
+</div>
+
+<div id="vault">
+    <h1 id="vault-title">🔐 TITAN STORAGE</h1>
+    
+    <div class="section" style="border: none; padding: 0; display: flex; justify-content: space-between; align-items: flex-end;">
+        <div style="flex-grow: 1; margin-right: 20px;">
+            <div id="quota-text">Syncing Storage...</div>
+            <div id="quota-wrap"><div id="quota-bar"></div></div>
+        </div>
+        <button onclick="location.reload()" style="background:none; color:cyan; border:1px solid cyan;">LOGOUT</button>
+    </div>
+
+    <div class="section" id="file-manager">
+        <h3>📁 TITAN FILE ENGINE</h3>
+        <input type="file" id="fileInput">
+        <button onclick="importFile()">⚡ ENCRYPT & STORE</button>
+        <div id="fileList" style="margin-top: 20px;"></div>
+    </div>
+
+    <div class="section">
+        <h3>📝 SECURE FRAGMENTS</h3>
+        <textarea id="notes" rows="8" placeholder="Enter encrypted data..."></textarea>
+        <div style="display: flex; gap: 10px;">
+            <button onclick="saveNotes()">💾 LOCAL SAVE</button>
+            <button onclick="syncToCloud()" style="background: #4285F4; color: black;">☁️ CLOUD UPLOAD</button>
+            <button onclick="restoreFromCloud()" style="background: transparent; color: #4285F4; border: 1px solid #4285F4;">🔄 RESTORE</button>
+        </div>
+    </div>
+</div>
+
+<div id="secret"></div>
+
+<script>
+/* ---------- CONFIG & ENGINES ---------- */
+const CLIENT_ID = '553428430402-cqsksdvrjslus6bf75na5n07f2cnhv64.apps.googleusercontent.com';
+const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+let db, tokenClient, gapiInited = false, gisInited = false;
+const REAL_PASS = "1111", SHADOW_PASS = "0000", MASTER_USER = "master", MASTER_PASS = "9999";
+
+/* ---------- INITIALIZATION ---------- */
+window.onload = () => {
+    gapi.load('client', async () => {
+        await gapi.client.init({ discoveryDocs: [DISCOVERY_DOC] });
+        gapiInited = true;
+    });
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID, scope: SCOPES, callback: '' 
+    });
+    gisInited = true;
+};
+
+const request = indexedDB.open("TitanVaultDB", 1);
+request.onupgradeneeded = (e) => {
+    db = e.target.result;
+    db.createObjectStore("vault", { keyPath: "id" });
+    db.createObjectStore("files", { keyPath: "name" });
+};
+request.onsuccess = (e) => { db = e.target.result; updateStorageQuota(); };
+
+/* ---------- CLOUD SYNC LOGIC ---------- */
+async function syncToCloud() {
+    if (!gapiInited) return alert("API NOT READY");
+    tokenClient.callback = async (resp) => {
+        if (resp.error) return;
+        
+        const notes = document.getElementById("notes").value;
+        const metadata = { 'name': 'titan_backup.json', 'mimeType': 'application/json' };
+        const file = new Blob([JSON.stringify({notes, date: new Date()})], {type: 'application/json'});
+        
+        const search = await gapi.client.drive.files.list({ q: "name = 'titan_backup.json' and trashed = false" });
+        const existingFile = search.result.files[0];
+
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], {type: 'application/json'}));
+        form.append('file', file);
+
+        let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+        let method = 'POST';
+        if (existingFile) {
+            url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`;
+            method = 'PATCH';
+        }
+
+        await fetch(url, {
+            method: method,
+            headers: new Headers({ 'Authorization': 'Bearer ' + gapi.client.getToken().access_token }),
+            body: form
+        });
+        alert("TITAN CLOUD SYNCED.");
+    };
+    tokenClient.requestAccessToken({prompt: gapi.client.getToken() === null ? 'consent' : ''});
+}
+
+async function restoreFromCloud() {
+    tokenClient.callback = async (resp) => {
+        const list = await gapi.client.drive.files.list({ q: "name = 'titan_backup.json'" });
+        if (list.result.files.length === 0) return alert("NO BACKUP FOUND");
+        const res = await gapi.client.drive.files.get({ fileId: list.result.files[0].id, alt: 'media' });
+        document.getElementById("notes").value = res.result.notes;
+        saveNotes();
+        alert("DATA RESTORED FROM TITAN CLOUD.");
+    };
+    tokenClient.requestAccessToken({prompt: ''});
+}
+
+/* ---------- CORE VAULT OPERATIONS ---------- */
+async function updateStorageQuota() {
+    if (navigator.storage && navigator.storage.estimate) {
+        const estimate = await navigator.storage.estimate();
+        const usedGB = (estimate.usage / (1024 ** 3)).toFixed(4);
+        const percent = ((estimate.usage / estimate.quota) * 100).toFixed(2);
+        document.getElementById('quota-bar').style.width = percent + "%";
+        document.getElementById('quota-text').innerText = `LOCAL NODE: ${usedGB} GB USED (${percent}%)`;
+    }
+}
+
+async function encryptData(data, password) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, { name: "AES-GCM", length: 256 }, true, ["encrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(data));
+    return { cipher: btoa(String.fromCharCode(...new Uint8Array(encrypted))), iv: btoa(String.fromCharCode(...iv)), salt: btoa(String.fromCharCode(...salt)) };
+}
+
+async function decryptData(obj, password) {
+    const salt = new Uint8Array(atob(obj.salt).split("").map(c => c.charCodeAt(0)));
+    const keyMaterial = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, keyMaterial, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
+    const iv = new Uint8Array(atob(obj.iv).split("").map(c => c.charCodeAt(0)));
+    const cipher = new Uint8Array(atob(obj.cipher).split("").map(c => c.charCodeAt(0)));
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
+    return new TextDecoder().decode(decrypted);
+}
+
+function login() {
+    const u = document.getElementById("u").value, p = document.getElementById("p").value;
+    if (u === MASTER_USER && p === MASTER_PASS) showMasterLogs();
+    else if (p === REAL_PASS) launchVault(false);
+    else if (p === SHADOW_PASS) { silentAlarm(); launchVault(true); }
+    else deny();
+}
+
+function launchVault(isDecoy) {
+    document.getElementById("login").style.display = "none";
+    document.getElementById("vault").style.display = "block";
+    if (isDecoy) {
+        document.getElementById("vault-title").innerText = "🔐 PERSONAL STORAGE v1.2";
+        document.getElementById("file-manager").style.display = "none";
+        document.getElementById("notes").value = "Note: Call the bank. Buy milk.";
+    } else {
+        refreshFileList(); loadNotes();
+    }
+}
+
+async function importFile() {
+    const file = document.getElementById('fileInput').files[0], password = prompt("Encryption Key:");
+    if (!file || !password) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const encrypted = await encryptData(e.target.result, password);
+        const tx = db.transaction("files", "readwrite");
+        tx.objectStore("files").put({ name: file.name, data: encrypted });
+        tx.oncomplete = () => { refreshFileList(); updateStorageQuota(); };
+    };
+    reader.readAsDataURL(file);
+}
+
+async function exportFile(name) {
+    const password = prompt("Decrypt Key:"), tx = db.transaction("files", "readonly");
+    tx.objectStore("files").get(name).onsuccess = async (e) => {
+        try {
+            const dec = await decryptData(e.target.result.data, password);
+            const a = document.createElement('a'); a.href = dec; a.download = name; a.click();
+        } catch { alert("DECRYPTION FAILED."); }
+    };
+}
+
+async function saveNotes() {
+    const tx = db.transaction("vault", "readwrite");
+    tx.objectStore("vault").put({ id: "notes", content: document.getElementById("notes").value });
+}
+
+function loadNotes() {
+    db.transaction("vault", "readonly").objectStore("vault").get("notes").onsuccess = (e) => {
+        if (e.target.result) document.getElementById("notes").value = e.target.result.content;
+    };
+}
+
+function refreshFileList() {
+    const list = document.getElementById('fileList'); list.innerHTML = "";
+    db.transaction("files", "readonly").objectStore("files").openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+            const item = document.createElement('div'); item.className = 'file-item';
+            item.innerHTML = `<span class="file-info">${cursor.value.name}</span>
+            <div><button onclick="exportFile('${cursor.value.name}')">⬇️</button>
+            <button onclick="deleteFile('${cursor.value.name}')" style="background:red">🗑️</button></div>`;
+            list.appendChild(item); cursor.continue();
+        }
+    };
+}
+
+function deleteFile(name) {
+    if(confirm("Erase?")) {
+        db.transaction("files", "readwrite").objectStore("files").delete(name);
+        refreshFileList(); updateStorageQuota();
+    }
+}
+
+/* ---------- UI GRID & EXTRAS ---------- */
+let secretClicks = 0;
+document.getElementById("secret").onclick = () => {
+    if (++secretClicks >= 3) {
+        if (prompt("PHRASE:") === "THE OG IS HERE") {
+            document.getElementById("chaos").style.display = "none";
+            document.getElementById("login").style.display = "flex";
+        }
+        secretClicks = 0;
+    }
+};
+
+function deny() {
+    document.getElementById("alert").style.display = "flex";
+    setTimeout(() => document.getElementById("alert").style.display = "none", 2000);
+}
+
+function silentAlarm() {
+    const logs = JSON.parse(localStorage.getItem("m_logs") || "[]");
+    logs.push({ event: "SHADOW ACCESS", time: new Date().toLocaleString(), details: navigator.userAgent });
+    localStorage.setItem("m_logs", JSON.stringify(logs));
+}
+
+function showMasterLogs() {
+    const logs = JSON.parse(localStorage.getItem("m_logs") || "[]");
+    document.body.innerHTML = `<div style="padding:40px; color:red; font-family:monospace; background: black; min-height: 100vh;">
+        <h1>👑 MASTER COMMAND CENTER</h1>
+        <button onclick="location.reload()">EXIT</button>
+        <hr>${logs.reverse().map(l => `<div style="border:1px solid red; margin:10px; padding:10px;">[${l.time}] ${l.event}</div>`).join('')}</div>`;
+}
+
+for(let i=0; i<48; i++) {
+    const d = document.createElement("div"); d.className = "box";
+    d.innerText = "S-DATA-" + Math.random().toString(36).slice(2,7).toUpperCase();
+    d.onclick = deny; document.getElementById("chaos").appendChild(d);
+}
+</script>
+</body>
+</html>
